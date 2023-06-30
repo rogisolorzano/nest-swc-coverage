@@ -1,73 +1,83 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="200" alt="Nest Logo" /></a>
-</p>
+## NestJS @swc/jest test coverage
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+This repo reproduces a difference in test coverage between `ts-jest` and `@swc/jest`,
+with a workaround for it.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Steps to reproduce
 
-## Description
+1. Install dependencies
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Installation
-
-```bash
+```
+$ nvm use
 $ npm install
 ```
 
-## Running the app
+2. Run tests with `ts-jest`
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```
+npm run test:tsjest
 ```
 
-## Test
+Coverage should be 100%.
 
-```bash
-# unit tests
-$ npm run test
+3. Run tests with `@swc/jest`
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+```
+npm run test:swc
 ```
 
-## Support
+Notice that Branch coverage dropped to 50%.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+4. Run tests with `./create-swc-transformer.js`, a wrapper around `@swc/jest` to workaround this.
 
-## Stay in touch
+```
+npm run test:swc-transformer
+```
 
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Coverage should be 100%.
 
-## License
+## Explanation
 
-Nest is [MIT licensed](LICENSE).
+This seems to be happening because of how `swc` transpiles the Typescript metadata for constructors.
+
+Take this constructor:
+
+```
+constructor(
+  @Inject(AppService)
+  private readonly appService: AppService,
+) {}
+```
+
+The `design:paramtypes` metadata for the constructor gets transpiled by `swc` to:
+
+```
+_ts_metadata("design:paramtypes", [
+    typeof _appservice.AppService === "undefined" ? Object : _appservice.AppService
+])
+```
+
+Notice the `typeof` ternary. This gets flagged as an "uncovered branch" by istanbul, the
+coverage calculator used by jest.
+
+![coverage screenshot](docs/branch-not-covered.png)
+
+Compare this to how `ts-jest` outputs this:
+
+```
+__metadata("design:paramtypes", [app_service_1.AppService])
+```
+
+No ternary, so no impact to code coverage.
+
+`./create-swc-transformer.js` is a workaround that tells istanbul to ignore these lines that
+incorrectly impact code coverage.
+
+It inserts an '/_istanbul ignore next_/' comment in the necessary places, resulting in
+transpiled code like this:
+
+```
+_ts_metadata("design:paramtypes", [
+    /* istanbul ignore next */typeof _appservice.AppService === "undefined" ? Object : _appservice.AppService
+])
+```
