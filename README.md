@@ -73,7 +73,7 @@ No ternary, so no impact to code coverage.
 `./create-swc-transformer.js` is a workaround that tells istanbul to ignore these lines that
 incorrectly impact code coverage.
 
-It inserts an '/_istanbul ignore next_/' comment in the necessary places, resulting in
+It inserts an `/* istanbul ignore next */` comment in the necessary places, resulting in
 transpiled code like this:
 
 ```
